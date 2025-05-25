@@ -1,22 +1,37 @@
-import { pool } from './db';
+import { prisma } from './db';
 
 export type Medication = 'Panadol' | 'Ibuprofen';
 
 export async function createRecord(userId: number, childName: string, temperature: number, medication: Medication, dosage: number) {
-  let childRes = await pool.query('SELECT id FROM children WHERE user_id = $1 AND name = $2', [userId, childName]);
-  let childId: number;
+  const user = await prisma.user.upsert({
+    where: { id: BigInt(userId) },
+    update: {},
+    create: { id: BigInt(userId) },
+  });
 
-  if (childRes.rowCount === 0) {
-    const insertRes = await pool.query('INSERT INTO children (user_id, name) VALUES ($1, $2) RETURNING id', [userId, childName]);
-    childId = insertRes.rows[0].id;
-  } else {
-    childId = childRes.rows[0].id;
+  let child = await prisma.child.findFirst({
+    where: { userId: BigInt(userId), name: childName },
+  });
+
+  if (!child) {
+    child = await prisma.child.create({
+      data: {
+        name: childName,
+        userId: BigInt(userId),
+      },
+    });
   }
 
-  await pool.query(
-    'INSERT INTO records (user_id, child_id, timestamp, temperature, medication, dosage) VALUES ($1, $2, $3, $4, $5, $6)',
-    [userId, childId, Date.now(), temperature, medication, dosage]
-  );
+  await prisma.record.create({
+    data: {
+      userId: BigInt(userId),
+      childId: child.id,
+      timestamp: Date.now(),
+      temperature,
+      medication,
+      dosage,
+    },
+  });
 }
 
 export async function getRecords(userId: number, childName: string, range: '6h' | '12h' | '1d' | '3d' | '7d') {
@@ -29,36 +44,47 @@ export async function getRecords(userId: number, childName: string, range: '6h' 
   };
   const since = Date.now() - msMap[range];
 
-  const res = await pool.query(
-    `SELECT r.* FROM records r
-     JOIN children c ON r.child_id = c.id
-     WHERE r.user_id = $1 AND c.name = $2 AND r.timestamp >= $3
-     ORDER BY r.timestamp DESC`,
-    [userId, childName, since]
-  );
-  return res.rows;
+  return prisma.record.findMany({
+    where: {
+      userId: BigInt(userId),
+      child: {
+        name: childName,
+      },
+      timestamp: {
+        gte: since,
+      },
+    },
+    orderBy: {
+      timestamp: 'desc',
+    },
+  });
 }
 
 export async function getNextFeed(userId: number, childName: string) {
-  const res = await pool.query(
-    `SELECT r.* FROM records r
-     JOIN children c ON r.child_id = c.id
-     WHERE r.user_id = $1 AND c.name = $2
-     ORDER BY r.timestamp DESC`,
-    [userId, childName]
-  );
-  const records = res.rows;
+  const records = await prisma.record.findMany({
+    where: {
+      userId: BigInt(userId),
+      child: {
+        name: childName,
+      },
+    },
+    orderBy: {
+      timestamp: 'desc',
+    },
+  });
+
   const lastPanadol = records.find(r => r.medication === 'Panadol');
   const lastIbuprofen = records.find(r => r.medication === 'Ibuprofen');
 
-  let nextPanadol = lastPanadol ? lastPanadol.timestamp + 4 * 3600 * 1000 : 0;
-  let nextIbuprofen = lastIbuprofen ? lastIbuprofen.timestamp + 6 * 3600 * 1000 : 0;
+  let nextPanadol:any = lastPanadol ? lastPanadol.timestamp + BigInt(4 * 3600 * 1000) : BigInt(0);
+  let nextIbuprofen:any = lastIbuprofen ? lastIbuprofen.timestamp + BigInt(6 * 3600 * 1000) : BigInt(0);
 
-  if (Math.abs(nextPanadol - nextIbuprofen) < 3600 * 1000) {
-    if (nextPanadol < nextIbuprofen) nextIbuprofen += 3600 * 1000;
-    else nextPanadol += 3600 * 1000;
+  if (Math.abs(Number(nextPanadol) - Number(nextIbuprofen)) < 3600 * 1000) {
+    if (nextPanadol < nextIbuprofen) nextIbuprofen += BigInt(3600 * 1000);
+    else nextPanadol += BigInt(3600 * 1000);
   }
 
+  let panadolDate = new Date(nextPanadol);
   return nextPanadol < nextIbuprofen
     ? { medication: 'Panadol', time: new Date(nextPanadol).toLocaleString() }
     : { medication: 'Ibuprofen', time: new Date(nextIbuprofen).toLocaleString() };

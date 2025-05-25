@@ -1,24 +1,23 @@
 {
-  "name": "temptracker",
+  "name": "telegram-health-bot",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
-  "dev": "ts-node-dev src/index.ts",
-  "build": "tsc",
-  "start": "node dist/index.js"
-},
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node-dev src/index.ts",
+    "prisma": "prisma"
+  },
   "dependencies": {
-    "pg": "^8.16.0",
-    "telegraf": "^4.16.3"
+    "@prisma/client": "^6.8.2",
+    "dotenv": "^16.3.1",
+    "node-telegram-bot-api": "^0.66.0"
   },
   "devDependencies": {
-    "@telegraf/types": "^8.3.1",
-    "@types/node": "^22.15.21",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.8.3"
+    "@types/node-telegram-bot-api": "^0.64.8",
+    "prisma": "^5.6.0",
+    "ts-node": "^10.9.1",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.4.2"
   }
 }

@@ -1,70 +1,41 @@
-import { Telegraf, Markup } from 'telegraf';
-import { createRecord, getRecords, getNextFeed } from './services/recordService.ts';
-import { pool } from './services/db.ts';
+import TelegramBot from 'node-telegram-bot-api';
+import dotenv from 'dotenv';
+import { Record } from '@prisma/client/runtime/library';
+import { createRecord, getRecords, getNextFeed } from './services/recordService';
 
-const bot = new Telegraf(process.env.BOT_TOKEN!);
+dotenv.config();
 
-bot.start(ctx => ctx.reply('Welcome! Use /record, /history, or /nextfeed'));
+const bot = new TelegramBot(process.env.BOT_TOKEN as string, { polling: true });
 
-bot.command('record', async ctx => {
-  ctx.reply('Select a medication:', Markup.inlineKeyboard([
-    [Markup.button.callback('Panadol', 'med_panadol')],
-    [Markup.button.callback('Ibuprofen', 'med_ibuprofen')]
-  ]));
+bot.onText(/\/start/, (msg: { chat: { id: any; }; }) => {
+  bot.sendMessage(msg.chat.id, `Welcome to Health Bot 👶\nUse /record, /records, or /nextfeed to manage your child's medication.`);
 });
 
-let pendingRecord: Record<string, { childName: string; temp: number; medication: string }> = {};
-
-bot.action(/med_.+/, async ctx => {
-  const userId = ctx.from?.id;
-  const medication = ctx.match[0].replace('med_', '');
-  if (!userId) return;
-  pendingRecord[userId] = { childName: '', temp: 0, medication };
-  ctx.reply(`Selected ${medication}. Please send: childName temperature dosage (e.g., John 38.5 5)`);
+bot.onText(/\/record/, (msg: { chat: { id: any; }; }) => {
+  bot.sendMessage(msg.chat.id, `Please enter data in this format:\nchildName,temperature,medication,ml\n\nExample: John,38.5,Panadol,5`);
 });
 
-bot.on('text', async ctx => {
-  const msg = ctx.message.text.split(' ');
-  const userId = ctx.from?.id;
+bot.on('message', async (msg: any) => {
+  const chatId = msg.chat.id;
 
-  if (!userId || !pendingRecord[userId]) return;
-
-  if (msg.length === 3) {
-    const [childName, tempStr, dosageStr] = msg;
-    const temp = parseFloat(tempStr);
-    const dosage = parseFloat(dosageStr);
-    const medication = pendingRecord[userId].medication as 'Panadol' | 'Ibuprofen';
-
-    await createRecord(userId, childName, temp, medication, dosage);
-    ctx.reply(`Record added for ${childName} with ${medication}!`);
-    delete pendingRecord[userId];
+  if (msg.text && !msg.text.startsWith('/')) {
+    const [child, temp, med, ml] = msg.text.split(',');
+    if (child && temp && med && ml) {
+      await createRecord(chatId, child.trim(), parseFloat(temp), med.trim() as any, parseFloat(ml));
+      bot.sendMessage(chatId, `✅ Record saved for ${child.trim()}`);
+    }
   }
 });
 
-bot.command('history', async ctx => {
-  ctx.reply('Send: childName range (e.g., John 6h, 12h, 1d, 3d, or 7d)');
+bot.onText(/\/records (.+)/, async (msg: { chat: { id: number; }; }, match: any) => {
+  const [child, range] = match![1].split(',');
+  const records = await getRecords(msg.chat.id, child.trim(), range.trim() as any);
+  const text = records.map((r: any) => `${new Date(r.timestamp).toLocaleString()} | ${r.temperature}°C | ${r.medication} (${r.dosage}ml)`).join('\n') || 'No records found';
+  bot.sendMessage(msg.chat.id, text);
 });
 
-bot.hears(/^([\w\s]+)\s+(6h|12h|1d|3d|7d)$/i, async ctx => {
-  const [childName, range] = ctx.match.slice(1);
-  const userId = ctx.from?.id;
-  if (userId) {
-    const records = await getRecords(userId, childName.trim(), range as any);
-    ctx.reply(records.map(r => `Temp: ${r.temperature}, ${r.medication}, ${r.dosage}ml at ${new Date(r.timestamp).toLocaleString()}`).join('\n') || 'No records.');
-  }
+bot.onText(/\/nextfeed (.+)/, async (msg: { chat: { id: number; }; }, match: any) => {
+  const child = match![1].trim();
+  const next = await getNextFeed(msg.chat.id, child);
+  bot.sendMessage(msg.chat.id, `Next dose: ${next.medication} at ${next.time}`);
 });
-
-bot.command('nextfeed', async ctx => {
-  ctx.reply('Send: childName');
-});
-
-bot.hears(/^\w+$/, async ctx => {
-  const childName = ctx.message.text.trim();
-  const userId = ctx.from?.id;
-  if (userId) {
-    const feed = await getNextFeed(userId, childName);
-    ctx.reply(`Next feed for ${childName}: ${feed.medication} at ${feed.time}`);
-  }
-});
-
-bot.launch();

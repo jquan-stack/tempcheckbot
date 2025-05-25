@@ -8,10 +8,11 @@ RUN npm install
 # Copy source code
 COPY . .
 
+# Generate Prisma client
+RUN npx prisma generate
+
 # Build the TypeScript code
 RUN npm run build
 
-# Set environment variables via Docker
-ENV NODE_ENV=production
-ENV BOT_TOKEN=your-telegram-bot-token
-ENV DATABASE_URL=postgresql://botuser:botpass@db:5432/healthbot
+# Run the bot
+CMD ["node", "dist/index.js"]

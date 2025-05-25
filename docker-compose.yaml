@@ -6,20 +6,24 @@ services:
     container_name: telegram_health_bot
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
-      - DATABASE_URL=postgresql://botuser:botpass@db:5432/healthbot
+      - DATABASE_URL=${DATABASE_URL}
     depends_on:
       - db
+    env_file:
+      - .env
 
   db:
     image: postgres:15-alpine
     container_name: healthbot_postgres
     restart: always
     environment:
-      POSTGRES_USER: botuser
-      POSTGRES_PASSWORD: botpass
-      POSTGRES_DB: healthbot
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    env_file:
+      - .env
 
 volumes:
   pgdata:
